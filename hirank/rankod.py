@@ -8,7 +8,8 @@ import warnings
 from typing import Callable, Optional, Union
 
 import numpy as np
-from numba import njit
+from numba import njit, prange, from_dtype
+from numba.typed import Dict
 from pynndescent import NNDescent
 from sklearn.base import BaseEstimator, OutlierMixin
 from sklearn.utils.validation import check_array, check_is_fitted
@@ -68,6 +69,63 @@ def gaussian_kernel(ranks: np.ndarray, sigma: float = 1.0) -> np.ndarray:
         Kernel values
     """
     return np.exp(-(ranks**2) / (2.0 * sigma**2))
+
+
+@njit #TODO cache=True breaks something?
+def build_row_map(
+    neighbors
+):
+    # This needs to be njitted to get a numba Typed dict
+    row_map = {neighbor:row for row,neighbor in enumerate(neighbors)}
+    return row_map
+
+
+@njit(cache=True, parallel=True)
+def compute_reverse_ranks(
+    nn_indices,
+    nn_distances,
+    neighbor_nn_distances,
+    row_map = Dict.empty(
+        key_type=np.int64,
+        value_type=np.int64
+    ),
+):
+    """
+    Compute the reverse ranks (up to max rank) of each nearest neighbor.
+
+    Parameters
+    ----------
+    nn_indices : np.ndarray
+        n_samples x n_neighbors array of nearest neighbors in the training set
+    nn_distances : np.ndarray
+        Array of distances to the neighbor at the same index in the nn_indices array.
+    neighbor_nn_distances : np.ndarray
+        Array of distances to a training point nearest neighbors
+    neighbor_index : dict
+        Dictionary that maps a neighbor id to its row in neighbor_nn_indices and neighbor_nn_distances
+
+    Returns
+    -------
+    np.ndarray
+        Reverse ranks
+    """
+    # Compute density scores
+    n_samples = nn_indices.shape[0]
+    n_neighbors = nn_indices.shape[1]
+    reverse_ranks = np.empty_like(nn_indices)
+    for i in prange(n_samples):
+        for j in prange(n_neighbors):
+            neighbor = nn_indices[i,j]
+            dist = nn_distances[i,j]
+            if row_map is None:
+                neighbor_row = neighbor
+            else:
+                neighbor_row = row_map[neighbor]
+            # Break ties in favour of lower rank
+            # Also properly gets rank of training data
+            rank = np.searchsorted(neighbor_nn_distances[neighbor_row], dist) + 1
+            reverse_ranks[i, j] = rank
+    return reverse_ranks
 
 
 class RankOD(BaseEstimator, OutlierMixin):
@@ -256,7 +314,7 @@ class RankOD(BaseEstimator, OutlierMixin):
             X,
             metric=self.metric,
             metric_kwds=self.metric_kwds,
-            n_neighbors=max(self.n_neighbors + 1, self.max_rank + 1),  # +1 to exclude self
+            n_neighbors=max(self.n_neighbors + 1, self.max_rank + 1),  # +1 to exclude self   #TODO by taking max are we always storing up to max rank neighbors in the index? Does this defeat the precompute option
             n_jobs=self.n_jobs,
             random_state=self.random_state,
             verbose=self.verbose,
@@ -266,6 +324,7 @@ class RankOD(BaseEstimator, OutlierMixin):
         if self.precompute_neighbors:
             if self.verbose:
                 print(f"Pre-computing {self.max_rank} nearest neighbors for {n_samples} training samples...")
+            # TODO can we just read the n_neighbor graph here
             self._training_neighbors_, self._training_distances_ = self.index_.query(X, k=self.max_rank + 1)
             # Exclude self (first neighbor)
             self._training_neighbors_ = self._training_neighbors_[:, 1:]
@@ -304,57 +363,43 @@ class RankOD(BaseEstimator, OutlierMixin):
         n_samples = X.shape[0]
         kernel_func = self._get_kernel_function()
 
+        # TODO batch for large inputs
+        # TODO better name for knn_indices
         # Get n_neighbors-nearest neighbors for each point from the training index
         knn_indices, knn_distances = self.index_.query(X, k=self.n_neighbors + 1)
         
-        # Exclude self only if point is in training data
         if is_training:
-            knn_indices = knn_indices[:, 1:]  # Skip first neighbor (self)
+            knn_indices = knn_indices[:, 1:]  # Exclude self
+            knn_distances = knn_distances[:, 1:]  # Exclude self
         else:
             knn_indices = knn_indices[:, :self.n_neighbors]  # Take first n_neighbors neighbors
+            knn_distances = knn_distances[:, :self.n_neighbors]  # Take first n_neighbors neighbors
 
-        # Compute density scores
-        density_scores = np.zeros(n_samples, dtype=np.float64)
-
-        for i in range(n_samples):
-            # For each of the n_neighbors neighbors, find where point i appears in their max_rank-NN list
-            neighbor_indices = knn_indices[i]
-            reverse_ranks = np.zeros(self.n_neighbors, dtype=np.float64)
-
-            for j, neighbor_idx in enumerate(neighbor_indices):
-                # Get the distance from this neighbor to point i
-                dist_to_point = knn_distances[i, j if not is_training else j + 1]
-                
-                # Get this neighbor's max_rank nearest neighbors and distances
-                if hasattr(self, '_training_neighbors_'):
-                    # Use pre-computed data (fast path - no queries needed!)
-                    neighbor_nn_indices = self._training_neighbors_[neighbor_idx]
-                    neighbor_nn_dists = self._training_distances_[neighbor_idx]
-                else:
-                    # Query on-demand (memory-efficient path)
-                    neighbor_nn_result, neighbor_nn_dists_result = self.index_.query(
-                        self._training_data_[neighbor_idx:neighbor_idx+1], 
+        # Compute the nearest neighbors of the ranked neighbors
+        if hasattr(self, '_training_distances_'):
+            neighbor_nn_distances = self._training_distances_
+            row_map = None
+        else:
+            nns = np.unique(knn_indices.flatten())
+            row_map = build_row_map(nns)
+            _, neighbor_nn_distances = self.index_.query(
+                        self._training_data_[nns], 
                         k=self.max_rank + 1
                     )
-                    neighbor_nn_indices = neighbor_nn_result[0, 1:]  # Exclude self
-                    neighbor_nn_dists = neighbor_nn_dists_result[0, 1:]  # Exclude self
-                
-                if is_training:
-                    # For training data, search by index in neighbor's NN list
-                    rank = np.where(neighbor_nn_indices == i)[0]
-                    if len(rank) > 0:
-                        reverse_ranks[j] = rank[0] + 1  # 1-indexed
-                    else:
-                        reverse_ranks[j] = self.max_rank  # Cap at max_rank
-                else:
-                    # For test data, find rank by distance comparison
-                    # Count how many of the neighbor's NNs are closer than point i
-                    rank = np.sum(neighbor_nn_dists < dist_to_point) + 1  # 1-indexed
-                    reverse_ranks[j] = min(rank, self.max_rank)  # Cap at max_rank
+            neighbor_nn_distances = neighbor_nn_distances[:, 1:]  # Exclude self
+        
+        print("Is precomputed", self.precompute_neighbors, "Is training",is_training)
+        print(neighbor_nn_distances.shape)
 
-            # Apply kernel and sum to get density
-            kernel_values = kernel_func(reverse_ranks)
-            density_scores[i] = np.sum(kernel_values)
+        reverse_ranks = compute_reverse_ranks(
+            knn_indices,
+            knn_distances,
+            neighbor_nn_distances,
+            row_map = row_map
+        )
+
+        kernel_values = kernel_func(reverse_ranks)
+        density_scores = np.sum(kernel_values, axis=1)
 
         # Store density scores and compute density bounds
         if is_training:
