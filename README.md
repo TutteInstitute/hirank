@@ -217,10 +217,6 @@ Neural networks map semantically similar inputs close together in embedding spac
 
 This is why the MNIST example (hiding digit 9) demonstrates OOD detection rather than pure outlier detection—digit 9 is a completely unseen class, not just an unusual instance of known classes.
 
-## Documentation
-
-Full documentation coming soon at: https://hirank.readthedocs.io
-
 ## Development
 
 ```bash
@@ -246,19 +242,6 @@ black hirank tests benchmarks
 ruff check hirank tests benchmarks
 ```
 
-## Citation
-
-If you use HiRank in your research, please cite:
-
-```bibtex
-@software{hirank2024,
-  title={HiRank: High-dimensional Rank-based Outlier Detection},
-  author={Healy, John},
-  year={2024},
-  url={https://github.com/TutteInstitute/hirank}
-}
-```
-
 ## License
 
 HiRank is licensed under the BSD 3-Clause License. See [LICENSE](LICENSE) for details.
@@ -270,5 +253,5 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 ## Acknowledgments
 
 - Built on [PyNNDescent](https://github.com/lmcinnes/pynndescent) for efficient nearest neighbor search
-- Inspired by rank-based outlier detection research
+- Inspired by rank-based outlier detection research & Rank-Based Outlier Detection H. Huang, Kishan Mehrotra, Chilukuri K. Mohan, 2011.
 - Part of the [Tutte Institute](https://www.tutteinstitute.com/) ecosystem
