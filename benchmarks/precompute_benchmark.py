@@ -20,15 +20,16 @@ speed-optimized mode avoids querying the index for each neighbor's
 nearest neighbors.
 """
 
-import numpy as np
 import time
+
+import numpy as np
+
 from hirank import RankOD
-import sys
 
 
 def format_memory(bytes_val):
     """Format bytes as human-readable string."""
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ["B", "KB", "MB", "GB"]:
         if bytes_val < 1024.0:
             return f"{bytes_val:.2f} {unit}"
         bytes_val /= 1024.0
@@ -43,11 +44,13 @@ def estimate_memory(n_samples, max_rank, dtype=np.float64):
     return memory_bytes
 
 
-def run_benchmark(n_samples, n_features, n_test, n_neighbors, max_rank, dtype=np.float64):
+def run_benchmark(
+    n_samples, n_features, n_test, n_neighbors, max_rank, dtype=np.float64
+):
     """Run benchmark comparing both modes."""
-    
+
     print(f"\n{'='*70}")
-    print(f"Benchmark Configuration")
+    print("Benchmark Configuration")
     print(f"{'='*70}")
     print(f"Training samples: {n_samples:,}")
     print(f"Test samples:     {n_test:,}")
@@ -55,119 +58,130 @@ def run_benchmark(n_samples, n_features, n_test, n_neighbors, max_rank, dtype=np
     print(f"n_neighbors:      {n_neighbors}")
     print(f"max_rank:         {max_rank}")
     print(f"dtype:            {dtype.__name__}")
-    
+
     # Generate data
     np.random.seed(42)
     X_train = np.random.randn(n_samples, n_features).astype(dtype)
     X_test = np.random.randn(n_test, n_features).astype(dtype)
-    
+
     # Memory estimate
     estimated_memory = estimate_memory(n_samples, max_rank, dtype)
     print(f"\nEstimated precompute memory: {format_memory(estimated_memory)}")
-    
+
     print(f"\n{'='*70}")
-    print(f"Mode 1: Memory-Efficient (precompute_neighbors=False)")
+    print("Mode 1: Memory-Efficient (precompute_neighbors=False)")
     print(f"{'='*70}")
-    
+
     # Mode 1: Memory-efficient
     detector1 = RankOD(
         n_neighbors=n_neighbors,
         max_rank=max_rank,
         precompute_neighbors=False,
         dtype=dtype,
-        random_state=42
+        random_state=42,
     )
-    
+
     start = time.time()
     detector1.fit(X_train)
     fit_time1 = time.time() - start
     print(f"Fit time:         {fit_time1:.3f}s")
-    
+
     start = time.time()
     scores_train1 = detector1.score_samples(X_train)
     score_train_time1 = time.time() - start
     print(f"Score train time: {score_train_time1:.3f}s ({n_samples} samples)")
-    
+
     start = time.time()
     scores_test1 = detector1.score_samples(X_test)
     score_test_time1 = time.time() - start
     print(f"Score test time:  {score_test_time1:.3f}s ({n_test} samples)")
-    
+
     print(f"\n{'='*70}")
-    print(f"Mode 2: Speed-Optimized (precompute_neighbors=True)")
+    print("Mode 2: Speed-Optimized (precompute_neighbors=True)")
     print(f"{'='*70}")
-    
+
     # Mode 2: Speed-optimized
     detector2 = RankOD(
         n_neighbors=n_neighbors,
         max_rank=max_rank,
         precompute_neighbors=True,
         dtype=dtype,
-        random_state=42
+        random_state=42,
     )
-    
+
     start = time.time()
     detector2.fit(X_train)
     fit_time2 = time.time() - start
     print(f"Fit time:         {fit_time2:.3f}s (includes precomputation)")
-    
+
     start = time.time()
     scores_train2 = detector2.score_samples(X_train)
     score_train_time2 = time.time() - start
     print(f"Score train time: {score_train_time2:.3f}s ({n_samples} samples)")
-    
+
     start = time.time()
     scores_test2 = detector2.score_samples(X_test)
     score_test_time2 = time.time() - start
     print(f"Score test time:  {score_test_time2:.3f}s ({n_test} samples)")
-    
+
     # Verify results match
-    results_match = np.allclose(scores_test1, scores_test2)
-    
+    train_results_match = np.allclose(scores_train1, scores_train2)
+    test_results_match = np.allclose(scores_test1, scores_test2)
+
     print(f"\n{'='*70}")
-    print(f"Performance Comparison")
+    print("Performance Comparison")
     print(f"{'='*70}")
-    print(f"Results match:           {results_match}")
-    print(f"Fit time speedup:        {fit_time1/fit_time2:.2f}x {'(slower)' if fit_time1 > fit_time2 else '(faster)'}")
+    print(f"Train results match:     {train_results_match}")
+    print(f"Test results match:      {test_results_match}")
+    print(
+        f"Fit time speedup:        {fit_time1/fit_time2:.2f}x {'(slower)' if fit_time1 > fit_time2 else '(faster)'}"
+    )
     print(f"Train scoring speedup:   {score_train_time1/score_train_time2:.2f}x faster")
     print(f"Test scoring speedup:    {score_test_time1/score_test_time2:.2f}x faster")
-    print(f"Total test pipeline:     {(fit_time1+score_test_time1)/(fit_time2+score_test_time2):.2f}x faster")
-    
+    print(
+        f"Total test pipeline:     {(fit_time1+score_test_time1)/(fit_time2+score_test_time2):.2f}x faster"
+    )
+
     print(f"\n{'='*70}")
-    print(f"Recommendations")
+    print("Recommendations")
     print(f"{'='*70}")
-    
+
     # Calculate per-sample times
     test_time_per_sample_1 = score_test_time1 / n_test * 1000
     test_time_per_sample_2 = score_test_time2 / n_test * 1000
-    
-    print(f"Test scoring (per sample):")
+
+    print("Test scoring (per sample):")
     print(f"  Memory-efficient: {test_time_per_sample_1:.2f}ms/sample")
     print(f"  Speed-optimized:  {test_time_per_sample_2:.2f}ms/sample")
-    print(f"\nUse precompute_neighbors=True when:")
-    print(f"  • Scoring many test samples (speedup: {score_test_time1/score_test_time2:.1f}x)")
+    print("\nUse precompute_neighbors=True when:")
+    print(
+        f"  • Scoring many test samples (speedup: {score_test_time1/score_test_time2:.1f}x)"
+    )
     print(f"  • Memory allows ({format_memory(estimated_memory)} for this dataset)")
-    print(f"  • Real-time/low-latency scoring is critical")
-    print(f"\nUse precompute_neighbors=False when:")
-    print(f"  • Memory is constrained")
-    print(f"  • Training dataset is very large")
-    print(f"  • Only scoring training data (uses cached scores)")
-    
+    print("  • Real-time/low-latency scoring is critical")
+    print("\nUse precompute_neighbors=False when:")
+    print("  • Memory is constrained")
+    print("  • Training dataset is very large")
+    print("  • Only scoring training data (uses cached scores)")
+
     return {
-        'fit_time_ratio': fit_time1 / fit_time2,
-        'train_score_speedup': score_train_time1 / score_train_time2,
-        'test_score_speedup': score_test_time1 / score_test_time2,
-        'memory_bytes': estimated_memory,
-        'results_match': results_match
+        "fit_time_ratio": fit_time1 / fit_time2,
+        "train_score_speedup": score_train_time1 / score_train_time2,
+        "test_score_speedup": score_test_time1 / score_test_time2,
+        "memory_bytes": estimated_memory,
+        "train_results_match": train_results_match,
+        "test_results_match": test_results_match,
     }
 
 
 if __name__ == "__main__":
-    print("="*70)
+    print("=" * 70)
     print("RankOD: precompute_neighbors Benchmark")
-    print("="*70)
-    print("\nComparing memory-efficient vs speed-optimized modes for test data scoring.")
-    
+    print("=" * 70)
+    print(
+        "\nComparing memory-efficient vs speed-optimized modes for test data scoring."
+    )
+
     # Run multiple benchmark scenarios
     scenarios = [
         # (n_samples, n_features, n_test, n_neighbors, max_rank, dtype)
@@ -175,23 +189,27 @@ if __name__ == "__main__":
         (1000, 50, 200, 20, 100, np.float64),
         (2000, 100, 500, 25, 150, np.float32),
     ]
-    
+
     results = []
     for n_samples, n_features, n_test, n_neighbors, max_rank, dtype in scenarios:
-        result = run_benchmark(n_samples, n_features, n_test, n_neighbors, max_rank, dtype)
+        result = run_benchmark(
+            n_samples, n_features, n_test, n_neighbors, max_rank, dtype
+        )
         results.append(result)
-    
+
     # Summary
     print(f"\n{'='*70}")
-    print(f"Summary Across All Scenarios")
+    print("Summary Across All Scenarios")
     print(f"{'='*70}")
-    test_speedups = [r['test_score_speedup'] for r in results]
-    print(f"Test scoring speedup:   {min(test_speedups):.1f}x - {max(test_speedups):.1f}x faster")
+    test_speedups = [r["test_score_speedup"] for r in results]
+    print(
+        f"Test scoring speedup:   {min(test_speedups):.1f}x - {max(test_speedups):.1f}x faster"
+    )
     print(f"Average speedup:        {np.mean(test_speedups):.1f}x faster")
     print(f"All results match:      {all(r['results_match'] for r in results)}")
-    
+
     print(f"\n{'='*70}")
-    print(f"Conclusion")
+    print("Conclusion")
     print(f"{'='*70}")
     print(f"""
 The precompute_neighbors=True mode provides significant speedups ({np.mean(test_speedups):.1f}x on average)
