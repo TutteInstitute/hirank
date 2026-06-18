@@ -12,7 +12,7 @@ authors = [
     {name = "Aaron Smith"},
     {name = "John Healy", email = "jchealy@gmail.com"}
 ]
-maintainers = [{name = "John Healy", email = "jchealy@gmail.com"}, {name= "Ryan DeWolf"}]
+maintainers = [{name = "John Healy", email = "jchealy@gmail.com"}, {name= "Ryan DeWolfe"}]
 requires-python = ">=3.10"
 keywords = [
     "outlier detection",
@@ -82,7 +82,6 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "-v",
     "--strict-markers",
     "--tb=short",
 ]
@@ -109,6 +108,8 @@ exclude = '''
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -122,9 +123,10 @@ ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
+    "B006",  # do not use mutable data structures for argument defaults
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
 [tool.coverage.run]
