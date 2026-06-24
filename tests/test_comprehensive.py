@@ -138,14 +138,6 @@ class TestKernelFunctions:
         X = np.vstack([X_normal, np.array(X_outliers)])
         return X, n_normal
 
-    def test_harmonic_kernel(self, outlier_data):
-        """Test harmonic kernel."""
-        X, n_normal = outlier_data
-        detector = RankOD(
-            n_neighbors=10, max_rank=30, kernel="harmonic", random_state=42
-        )
-        scores = detector.fit(X).score_samples(X)
-        assert scores[n_normal:].mean() < scores[:n_normal].mean()
 
     def test_inverse_sqrt_kernel(self, outlier_data):
         """Test inverse sqrt kernel."""
@@ -156,14 +148,13 @@ class TestKernelFunctions:
         scores = detector.fit(X).score_samples(X)
         assert scores[n_normal:].mean() < scores[:n_normal].mean()
 
-    def test_gaussian_kernel(self, outlier_data):
-        """Test Gaussian kernel."""
+    def test_linear_kernel(self, outlier_data):
+        """Test Linear kernel."""
         X, n_normal = outlier_data
         detector = RankOD(
             n_neighbors=10,
             max_rank=30,
-            kernel="gaussian",
-            kernel_params={"sigma": 2.0},
+            kernel="linear",
             random_state=42,
         )
         scores = detector.fit(X).score_samples(X)

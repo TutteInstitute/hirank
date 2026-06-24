@@ -90,7 +90,7 @@ def test_different_kernels():
     """Test with different kernel functions."""
     X = np.random.randn(50, 5)
 
-    for kernel in ["harmonic", "inverse_sqrt", "gaussian"]:
+    for kernel in ["inverse_sqrt", "linear"]:
         detector = RankOD(n_neighbors=10, max_rank=30, kernel=kernel)
         detector.fit(X)
         scores = detector.score_samples(X)
