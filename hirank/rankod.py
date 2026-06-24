@@ -226,7 +226,7 @@ class RankOD(OutlierMixin, BaseEstimator):
     reverse_scores : bool, default=False
         Flag to reverse the scores so that higher scores are more likely to be outliers.
 
-    precompute_neighbors : bool, default=False
+    precompute_neighbors : bool, default=True
         Whether to pre-compute and store max_rank nearest neighbors for all training points.
 
         - False (default): Memory-efficient mode. Queries index on-demand during scoring.
@@ -322,7 +322,7 @@ class RankOD(OutlierMixin, BaseEstimator):
         mode: str = "rank",
         calibration: str | None = None,
         reverse_scores: bool = False,
-        precompute_neighbors: bool = False,
+        precompute_neighbors: bool = True,
         dtype=np.float64,
         kernel: str | Callable = "inverse_sqrt",
         kernel_params: dict | None = {},
