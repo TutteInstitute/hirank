@@ -15,44 +15,6 @@ from sklearn.utils.validation import check_is_fitted, validate_data
 
 
 @njit(cache=True)
-def harmonic_kernel(ranks: np.ndarray) -> np.ndarray:
-    """
-    Harmonic kernel function: k(r) = 1/r
-
-    Parameters
-    ----------
-    ranks : np.ndarray
-        Array of ranks (1-indexed)
-
-    Returns
-    -------
-    np.ndarray
-        Kernel values
-
-    """
-    return 1.0 / ranks
-
-
-@njit(cache=True)
-def inverse_log_kernel(ranks: np.ndarray) -> np.ndarray:
-    """
-    Inverse log kernel function: k(r) = 1/log_2(r+1)
-
-    Parameters
-    ----------
-    ranks : np.ndarray
-        Array of ranks (1-indexed)
-
-    Returns
-    -------
-    np.ndarray
-        Kernel values
-
-    """
-    return 1.0 / np.log2(ranks + 1) # + 1 since log(1)=0
-
-
-@njit(cache=True)
 def inverse_sqrt_kernel(ranks: np.ndarray) -> np.ndarray:
     """
     Inverse square root kernel: k(r) = 1/sqrt(r)
@@ -89,27 +51,6 @@ def linear_kernel(ranks: np.ndarray, max_rank: int) -> np.ndarray:
 
     """
     return max_rank - ranks
-
-
-@njit(cache=True)
-def gaussian_kernel(ranks: np.ndarray, sigma: float = 1.0) -> np.ndarray:
-    """
-    Gaussian kernel: k(r) = exp(-r^2 / (2*sigma^2))
-
-    Parameters
-    ----------
-    ranks : np.ndarray
-        Array of ranks (1-indexed)
-    sigma : float
-        Bandwidth parameter
-
-    Returns
-    -------
-    np.ndarray
-        Kernel values
-
-    """
-    return np.exp(-(ranks**2) / (2.0 * sigma**2))
 
 
 def row_normalize(X):
@@ -195,7 +136,7 @@ def ecdf_scores(
     return ecdfs
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def local_ecdf_scores(knn_indices, training_raw_scores, raw_scores):
     """
     Transform raw scores into local ECDF scores. Do not insert the
@@ -289,15 +230,9 @@ class RankOD(OutlierMixin, BaseEstimator):
     kernel : {'harmonic', 'inverse_sqrt', 'gaussian'} or callable, default='inverse_sqrt'
         Kernel function to apply to ranks:
 
-        - 'harmonic': k(r) = 1/r
-        - 'inverse_log': k(r) = 1/log_2(r+1)
         - 'inverse_sqrt': k(r) = 1/sqrt(r)
         - 'linear': k(r) = max_rank - k(r)
-        - 'gaussian': k(r) = exp(-r^2 / (2*sigma^2))
         - callable: custom kernel function taking ranks array and returning weights
-
-    kernel_params : dict, optional
-        Additional parameters for the kernel function (e.g., sigma for Gaussian).
 
     metric : str, default='euclidean'
         Distance metric to use for nearest neighbor search.
@@ -367,7 +302,6 @@ class RankOD(OutlierMixin, BaseEstimator):
         precompute_neighbors: bool = True,
         dtype=np.float64,
         kernel: str | Callable = "inverse_sqrt",
-        kernel_params: dict | None = {},
         metric: str = "euclidean",
         metric_kwds: dict | None = {},
         n_jobs: int = -1,
@@ -383,7 +317,6 @@ class RankOD(OutlierMixin, BaseEstimator):
         self.precompute_neighbors = precompute_neighbors
         self.dtype = dtype  # Store as-is for sklearn compatibility
         self.kernel = kernel
-        self.kernel_params = kernel_params
         self.metric = metric
         self.metric_kwds = metric_kwds
         self.n_jobs = n_jobs
@@ -427,12 +360,13 @@ class RankOD(OutlierMixin, BaseEstimator):
             print(
                 f"Building nearest neighbor index with n_neighbors={self.n_neighbors}..."
             )
-
+        
+        index_n_neighbors = self.n_neighbors if self.mode == "sun" else max(self.n_neighbors, self.max_rank) + 1
         self.index_ = NNDescent(
             X,
             metric=self.metric,
             metric_kwds=self.metric_kwds,
-            n_neighbors=max(self.n_neighbors, self.max_rank) + 1,  # +1 to exclude self
+            n_neighbors=index_n_neighbors,
             n_jobs=self.n_jobs,
             random_state=self.random_state,
             verbose=self.verbose,
@@ -595,21 +529,14 @@ class RankOD(OutlierMixin, BaseEstimator):
         """Get the kernel function based on the kernel parameter."""
         if callable(self.kernel):
             return self.kernel
-        elif self.kernel == "harmonic":
-            return harmonic_kernel
-        elif self.kernel == "inverse_log":
-            return inverse_log_kernel
         elif self.kernel == "inverse_sqrt":
             return inverse_sqrt_kernel
         elif self.kernel == "linear":
             return lambda r: linear_kernel(r, self.max_rank)
-        elif self.kernel == "gaussian":
-            sigma = self.kernel_params.get("sigma", 1.0)
-            return lambda r: gaussian_kernel(r, sigma)
         else:
             raise ValueError(
                 f"Unknown kernel: {self.kernel}. "
-                f"Must be 'harmonic', 'inverse_sqrt', 'gaussian', or callable."
+                f"Must be 'inverse_sqrt', 'linear', or callable."
             )
 
     def _compute_scores(
@@ -683,9 +610,9 @@ class RankOD(OutlierMixin, BaseEstimator):
         knn_distances,
     ):
         """Compute Sun scores"""
-        scores = knn_distances[:, -1]  # just the distance to knn
+        scores = knn_distances[:, -1] 
         # euclidean distance between L2 normed vectors
-        # are in [0,2], so divide by 2 to normalize.
+        # are in [0,2], so divide by 2 to normalize
         # and reverse so bigger distance is smaller score
         scores = 1 - (scores / 2)
         return scores
@@ -697,7 +624,6 @@ class RankOD(OutlierMixin, BaseEstimator):
         neighbor_nn_distances=None,
     ):
         """Compute rank based scores"""
-        kernel_func = self._get_kernel_function()
         # Compute the nearest neighbors of the ranked neighbors
         if neighbor_nn_distances is not None:
             row_map = None
@@ -711,14 +637,18 @@ class RankOD(OutlierMixin, BaseEstimator):
                 self._training_data_[nns], k=self.max_rank + 1
             )
             neighbor_nn_distances = neighbor_nn_distances[:, 1:]  # Exclude self
+        
         reverse_ranks = compute_reverse_ranks(
             knn_indices, knn_distances, neighbor_nn_distances, row_map=row_map
         )
+
+        kernel_func = self._get_kernel_function()
         kernel_values = kernel_func(reverse_ranks)
         kernel_values[reverse_ranks > self.max_rank] = (
             0  # No contribution from unranked
         )
         scores = np.mean(kernel_values, axis=1)
+
         # Normalize, min is 0
         max_score = np.sum(kernel_func(1) * knn_indices.shape[1])
         scores = scores / max_score

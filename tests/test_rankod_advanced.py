@@ -88,7 +88,7 @@ class TestRankODAlgorithm:
 class TestRankODKernels:
     """Test different kernel functions."""
 
-    @pytest.mark.parametrize("kernel", ["harmonic", "inverse_sqrt", "gaussian"])
+    @pytest.mark.parametrize("kernel", ["inverse_sqrt", "linear"])
     def test_kernel_produces_valid_scores(self, kernel):
         """Test that each kernel produces valid outlier scores."""
         np.random.seed(42)
@@ -102,23 +102,6 @@ class TestRankODKernels:
         assert np.all(np.isfinite(scores))
         assert np.all(scores >= 0)
 
-    def test_gaussian_kernel_with_sigma(self):
-        """Test Gaussian kernel with custom sigma parameter."""
-        np.random.seed(42)
-        X = np.random.randn(50, 5)
-
-        detector = RankOD(
-            n_neighbors=10,
-            max_rank=30,
-            kernel="gaussian",
-            kernel_params={"sigma": 2.0},
-            random_state=42,
-        )
-        detector.fit(X)
-        scores = detector.score_samples(X)
-
-        assert len(scores) == 50
-        assert np.all(np.isfinite(scores))
 
     def test_custom_kernel(self):
         """Test with custom kernel function."""
@@ -144,7 +127,7 @@ class TestRankODKernels:
         X = np.random.randn(50, 5)
 
         scores_dict = {}
-        for kernel in ["harmonic", "inverse_sqrt", "gaussian"]:
+        for kernel in ["inverse_sqrt", "linear"]:
             detector = RankOD(
                 n_neighbors=10, max_rank=30, kernel=kernel, random_state=42
             )
@@ -152,8 +135,7 @@ class TestRankODKernels:
             scores_dict[kernel] = detector.score_samples(X)
 
         # Scores should be different for different kernels
-        assert not np.allclose(scores_dict["harmonic"], scores_dict["inverse_sqrt"])
-        assert not np.allclose(scores_dict["harmonic"], scores_dict["gaussian"])
+        assert not np.allclose(scores_dict["inverse_sqrt"], scores_dict["linear"])
 
 
 class TestRankODParameters:
@@ -258,10 +240,10 @@ class TestRankODScikitLearnCompatibility:
     def test_set_params(self):
         """Test set_params method."""
         detector = RankOD(n_neighbors=15, max_rank=50)
-        detector.set_params(n_neighbors=20, kernel="gaussian")
+        detector.set_params(n_neighbors=20, kernel="linear")
 
         assert detector.n_neighbors == 20
-        assert detector.kernel == "gaussian"
+        assert detector.kernel == "linear"
 
     def test_predict_contamination_levels(self):
         """Test predict with different contamination levels."""
