@@ -16,7 +16,6 @@ def test_import():
     assert RankOD is not None
 
 
-
 def test_init_custom_params():
     """Test RankOD initialization with custom parameters."""
     detector = RankOD(n_neighbors=20, max_rank=50, kernel="inverse_sqrt")
@@ -169,9 +168,9 @@ def test_outlier_detection():
     scores = detector.score_samples(X)
 
     # Outliers should have lower scores
-    outlier_scores = scores[:5]
-    normal_scores = scores[5:]
-    assert np.mean(outlier_scores) < np.mean(normal_scores)
+    outlier_mean = np.mean(scores[-5:])
+    normal_mean = np.mean(scores[:-5])
+    assert outlier_mean < normal_mean
 
 
 def test_single_vector_scoring():
@@ -303,7 +302,10 @@ def test_precompute_neighbors_modes():
 
 def test_check_estimator():
     check_estimator(
-        RankOD(n_neighbors=5),  # So pynndescent works with as few as 10 samples
+        RankOD(
+            n_neighbors=5,
+            max_rank=7,
+        ),  # So pynndescent works with as few as 10 samples
         expected_failed_checks={
             "check_estimators_pickle": "pynndescent does not pickle nicely",
             "check_parameters_default_constructible": "We use dicts as params, update to frozen dict when possible",

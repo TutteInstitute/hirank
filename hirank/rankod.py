@@ -207,7 +207,7 @@ class RankOD(OutlierMixin, BaseEstimator):
         Expected proportion of outliers in the dataset.
         Used to set the threshold for binary classification in predict().
 
-    score : str, default="rank"
+    mode : str, default="rank"
         Which score to compute.
 
         - "rank": raw scores are the average kerneled reverse rank.
@@ -319,7 +319,7 @@ class RankOD(OutlierMixin, BaseEstimator):
         n_neighbors: int = 15,
         max_rank: int = 100,
         contamination: float = 0.1,
-        score: str = "rank",
+        mode: str = "rank",
         calibration: str | None = None,
         reverse_scores: bool = False,
         precompute_neighbors: bool = False,
@@ -335,7 +335,7 @@ class RankOD(OutlierMixin, BaseEstimator):
         self.n_neighbors = n_neighbors
         self.max_rank = max_rank
         self.contamination = contamination
-        self.score = score
+        self.mode = mode
         self.calibration = calibration
         self.reverse_scores = reverse_scores
         self.precompute_neighbors = precompute_neighbors
@@ -367,7 +367,7 @@ class RankOD(OutlierMixin, BaseEstimator):
 
         """
         X = validate_data(self, X, accept_sparse=False, dtype=self.dtype, reset=True)
-        if self.score == "sun":
+        if self.mode == "sun":
             if self.metric != "euclidean":
                 raise ValueError(
                     "Sun score requires euclidean metric. Try setting score to rank or metric to euclidean."
@@ -458,7 +458,7 @@ class RankOD(OutlierMixin, BaseEstimator):
         if X.ndim == 1:
             X = X.reshape(1, -1)
         X = validate_data(self, X, accept_sparse=False, dtype=self.dtype, reset=False)
-        if self.score == "sun":
+        if self.mode == "sun":
             X = row_normalize(X)
         # Check if this is the training data (quick heuristic)
         if hasattr(self, "outlier_scores_") and X.shape[0] == len(self.outlier_scores_):
@@ -599,20 +599,18 @@ class RankOD(OutlierMixin, BaseEstimator):
         """
 
         # Compute Scores
-        if self.score == "rank":
+        if self.mode == "rank":
             raw_scores = self._compute_rank_scores(
                 knn_indices, knn_distances, neighbor_nn_distances
             )
-        elif self.score == "sun":
+        elif self.mode == "sun":
             raw_scores = self._compute_sun_scores(knn_distances)
         else:
-            raise ValueError(f"Score must be one of 'rank' or 'sun'. Got {self.score}")
+            raise ValueError(f"Score must be one of 'rank' or 'sun'. Got {self.mode}")
 
         # Calibrate Scores
         if self.calibration == "raw" or self.calibration is None:
-            outlier_scores = (raw_scores - self._min_raw_score_) / (
-                self._max_raw_score_ - self._min_raw_score_
-            )
+            outlier_scores = raw_scores
         elif self.calibration == "local":
             if is_training:
                 self._training_raw_scores_ = raw_scores
