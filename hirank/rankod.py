@@ -36,7 +36,7 @@ def harmonic_kernel(ranks: np.ndarray) -> np.ndarray:
 @njit(cache=True)
 def inverse_log_kernel(ranks: np.ndarray) -> np.ndarray:
     """
-    Harmonic kernel function: k(r) = 1/r
+    Inverse log kernel function: k(r) = 1/log_2(r+1)
 
     Parameters
     ----------
@@ -68,6 +68,27 @@ def inverse_sqrt_kernel(ranks: np.ndarray) -> np.ndarray:
         Kernel values
     """
     return 1.0 / np.sqrt(ranks)
+
+
+@njit(cache=True)
+def linear_kernel(ranks: np.ndarray, max_rank: int) -> np.ndarray:
+    """
+    Linear kernel: k(r) = max_rank - k(r)
+
+    Parameters
+    ----------
+    ranks : np.ndarray
+        Array of ranks (1-indexed)
+    max_rank : int
+        The maximum rank computed.
+
+    Returns
+    -------
+    np.ndarray
+        Kernel values
+
+    """
+    return max_rank - ranks
 
 
 @njit(cache=True)
@@ -271,6 +292,7 @@ class RankOD(OutlierMixin, BaseEstimator):
         - 'harmonic': k(r) = 1/r
         - 'inverse_log': k(r) = 1/log_2(r+1)
         - 'inverse_sqrt': k(r) = 1/sqrt(r)
+        - 'linear': k(r) = max_rank - k(r)
         - 'gaussian': k(r) = exp(-r^2 / (2*sigma^2))
         - callable: custom kernel function taking ranks array and returning weights
 
@@ -579,6 +601,8 @@ class RankOD(OutlierMixin, BaseEstimator):
             return inverse_log_kernel
         elif self.kernel == "inverse_sqrt":
             return inverse_sqrt_kernel
+        elif self.kernel == "linear":
+            return lambda r: linear_kernel(r, self.max_rank)
         elif self.kernel == "gaussian":
             sigma = self.kernel_params.get("sigma", 1.0)
             return lambda r: gaussian_kernel(r, sigma)
