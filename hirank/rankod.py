@@ -74,13 +74,9 @@ def gaussian_kernel(ranks: np.ndarray, sigma: float = 1.0) -> np.ndarray:
 
 def row_normalize(X):
     """
-    Row normalize 2d numpy or scipy arrays.
+    L2 row normalize a 2d numpy array.
     """
-    # Easier to transpose since stuff operates columnwise by default
-    X = X.transpose()
-    X = X / X.sum(axis=0)
-    X = X.transpose()
-    return X
+    return X / np.linalg.norm(X, axis=1)[:, None]
 
 
 @njit  # TODO cache=True breaks something?
@@ -141,7 +137,7 @@ def ecdf_scores(
     """
     Transform raw scores into ECDF scores. Do not insert the
     raw scores before computing the ECDF. The ECDF value of
-    each raw score is the proportion of training raw scores
+    each raw score is the proportion of raw training scores
     that are smaller.
 
     Parameters
@@ -169,7 +165,7 @@ def local_ecdf_scores(knn_indices, training_raw_scores, raw_scores):
     ----------
     knn_indices : np.ndarray
         Each row denotes the indices of the nearest neighbors of the
-        score in the correspoing raw_scores array. Used to get the
+        score in the corresponding raw_scores array. Used to get the
         local scores from training_raw_scores.
 
     training_raw_scores : np.ndarray
@@ -487,8 +483,6 @@ class RankOD(OutlierMixin, BaseEstimator):
         Returns a shifted copy of the scores such that non-positive scores are outliers.
 
         """
-        # TODO implement other options (possibly using a learned global threshold) to
-        # rescale scores so negatives are outliers
         check_is_fitted(self, ["offset_", "index_", "n_features_in_"])
         scores = self.score_samples(X)
         if contamination is not None:
@@ -603,13 +597,6 @@ class RankOD(OutlierMixin, BaseEstimator):
             Outlier scores (lower = more outlier).
 
         """
-        # Get n_neighbors-nearest neighbors for each point from the training index
-        knn_indices = knn_indices[
-            :, : self.n_neighbors
-        ]  # Take first n_neighbors neighbors
-        knn_distances = knn_distances[
-            :, : self.n_neighbors
-        ]  # Take first n_neighbors neighbors
 
         # Compute Scores
         if self.score == "rank":
@@ -617,15 +604,12 @@ class RankOD(OutlierMixin, BaseEstimator):
                 knn_indices, knn_distances, neighbor_nn_distances
             )
         elif self.score == "sun":
-            raw_scores = self._compute_sun_scores(knn_indices, knn_distances)
+            raw_scores = self._compute_sun_scores(knn_distances)
         else:
             raise ValueError(f"Score must be one of 'rank' or 'sun'. Got {self.score}")
 
         # Calibrate Scores
         if self.calibration == "raw" or self.calibration is None:
-            if is_training:
-                self._max_raw_score_ = np.max(raw_scores)
-                self._min_raw_score_ = np.min(raw_scores)
             outlier_scores = (raw_scores - self._min_raw_score_) / (
                 self._max_raw_score_ - self._min_raw_score_
             )
@@ -652,9 +636,9 @@ class RankOD(OutlierMixin, BaseEstimator):
 
     def _compute_sun_scores(
         self,
-        knn_indices,
         knn_distances,
     ):
+        """Compute Sun scores"""
         scores = knn_distances[:, -1]  # just the distance to knn
         # euclidean distance between L2 normed vectors
         # are in [0,2], so divide by 2 to normalize.
@@ -668,6 +652,7 @@ class RankOD(OutlierMixin, BaseEstimator):
         knn_distances,
         neighbor_nn_distances=None,
     ):
+        """Compute rank based scores"""
         kernel_func = self._get_kernel_function()
         # Compute the nearest neighbors of the ranked neighbors
         if neighbor_nn_distances is not None:
@@ -686,7 +671,14 @@ class RankOD(OutlierMixin, BaseEstimator):
             knn_indices, knn_distances, neighbor_nn_distances, row_map=row_map
         )
         kernel_values = kernel_func(reverse_ranks)
+        kernel_values[reverse_ranks > self.max_rank] = (
+            0  # No contribution from unranked
+        )
         scores = np.mean(kernel_values, axis=1)
+        # Normalize, min is 0
+        max_score = np.sum(kernel_func(1) * knn_indices.shape[1])
+        scores = scores / max_score
+
         return scores
 
     def _compute_offset(self, scores, contamination: float | None = None) -> float:
